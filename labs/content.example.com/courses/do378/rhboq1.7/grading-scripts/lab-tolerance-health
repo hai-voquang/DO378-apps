@@ -1,0 +1,68 @@
+#!/bin/bash
+#
+# Copyright 2020 Red Hat, Inc.
+#
+# NAME
+#     lab-tolerance-health - grading script for DO378 - Chapter 6 Section 4 Guided Exercise
+#
+# SYNOPSIS
+#     lab-tolerance-health {start|grade}
+#
+#        start   - prepare the system for starting the lab
+#        grade   - perform evaluation steps on the system
+#
+# DESCRIPTION
+#     This script, based on singular argument, either does start, or finish the Implementing a Health Check Guided Exercise.
+#
+# CHANGELOG
+#   * Wed Oct 1 2020 Eduardo Ramirez <eramirez@redhat.com>
+#   - Original code for Quarkus 1.3.4
+
+
+PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin
+
+# Initialize and set some variables
+run_as_root='true'
+target='workstation'
+# The grading script file name. Recall that the grading script file name SHOULD BE IDENTICAL TO THE LAB/GE/DEMO BRANCH!
+this='tolerance-health'
+# Lab title
+title='Implementing a Health Check'
+
+
+# This defines which subcommands are supported (start, grade, etc.).
+# Corresponding lab_COMMAND functions must be defined.
+declare -a valid_commands=(start finish)
+
+function lab_start {
+  ocp4_print_setup_header
+
+  ocp4_grab_lab_files
+
+  ocp4_login_as_developer
+
+  ocp4_new_project "${this}-${RHT_OCP4_DEV_USER}"
+
+  ocp4_print_setup_footer
+}
+
+function lab_finish {
+  ocp4_print_cleanup_header
+
+  ocp4_login_as_developer
+
+  ocp4_delete_project "${this}-${RHT_OCP4_DEV_USER}"
+
+  ocp4_cleanup_lab_files
+
+  ocp4_print_cleanup_footer
+}
+
+
+############### Don't EVER change anything below this line ###############
+
+# Source library of functions
+source /usr/local/lib/${function_lib}
+source /usr/local/lib/${platform_lib}
+
+grading_main_program "$@"

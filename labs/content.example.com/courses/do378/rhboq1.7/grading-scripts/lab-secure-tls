@@ -1,0 +1,60 @@
+#!/bin/bash
+#
+# Copyright 2020 Red Hat, Inc.
+#
+# NAME
+#     lab-secure-tls - lab script for GE 2.4 on restful services
+#
+# SYNOPSIS
+#     lab-secure-tls {start|finish}
+#
+#        start - verify prerequisites lab
+#        finish - removes the resources and files created for lab
+#
+# DESCRIPTION
+#     This script is used to start or conclude the chapter 8 section 2 guided exercise.
+#
+# CHANGELOG
+#   * Wed Nov 16 2020 Eduardo Ramirez <eramirez@redhat.com>
+#   - Initial commit
+
+
+PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin
+
+# Initialize and set some variables
+run_as_root='true'
+
+# Required by the do283 shlib
+this='secure-tls'
+title='GE: Implementing Communication Security in Quarkus Microservices'
+
+declare -a valid_commands=(start finish)
+
+function lab_start {
+
+  ocp4_print_prereq_header
+  ocp4_print_setup_header
+
+  ocp4_grab_lab_files
+
+  ocp4_print_setup_footer
+
+}
+
+function lab_finish {
+
+  ocp4_print_cleanup_header
+
+  ocp4_cleanup_lab_files
+
+  ocp4_print_cleanup_footer
+
+}
+
+############### Don't EVER change anything below this line ###############
+
+# Source library of functions
+source /usr/local/lib/${function_lib}
+source /usr/local/lib/${platform_lib}
+
+grading_main_program "$@"

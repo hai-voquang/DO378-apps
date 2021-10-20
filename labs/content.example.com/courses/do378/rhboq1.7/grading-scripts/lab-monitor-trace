@@ -1,0 +1,61 @@
+#!/bin/bash
+#
+# Copyright 2020 Red Hat, Inc.
+#
+# NAME
+#     lab-monitor-trace - lab script for GE 9.4
+#
+# SYNOPSIS
+#     lab-test {pad2|cnfh}
+#
+#        start - setup lab files
+#        finish - clean lab files
+#
+# DESCRIPTION
+#     This script, based on singular argument, prepares and cleans lab files for GE 9.4
+#
+# CHANGELOG
+#   * Mon Nov 17 2020 Ravi Srinivasan <ravis@redhat.com>
+#   - original code
+#
+# REFERENCES
+#     Applications
+#         This lab uses the Quarkus Calculator app
+
+
+PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin
+
+# Initialize and set some variables
+run_as_root='true'
+this='monitor-trace'
+title='Guided Exercise: Tracing Requests Across Microservices'
+target='workstation'
+RHT_OCP4_CONFIG=/usr/local/etc/ocp4.config
+
+# This defines which subcommands are supported (start, grade, etc.).
+# Corresponding lab_COMMAND functions must be defined.
+declare -a valid_commands=(start finish)
+
+function lab_start {
+
+  ocp4_print_prereq_header
+  ocp4_login_as_developer
+  ocp4_print_setup_header
+  ocp4_grab_lab_files
+  ocp4_print_setup_footer
+}
+
+function lab_finish {
+
+  ocp4_print_cleanup_header
+  ocp4_cleanup_lab_files
+  ocp4_print_cleanup_footer
+}
+
+############### Don't EVER change anything below this line ###############
+
+# Source library of functions
+source /usr/local/lib/${function_lib}
+source /usr/local/lib/${platform_lib}
+
+grading_main_program "$@"

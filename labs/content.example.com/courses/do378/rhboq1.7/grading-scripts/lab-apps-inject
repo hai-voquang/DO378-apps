@@ -1,0 +1,62 @@
+#!/bin/bash
+#
+# Copyright 2020 Red Hat, Inc.
+#
+# NAME
+#     lab-implement-rest - lab script for GE 4.2 on restful services
+#
+# SYNOPSIS
+#     lab-implement-rest {start|finish}
+#
+#        start - verify prerequisites lab
+#        finish - removes the resources and files created for lab
+#
+# DESCRIPTION
+#     This script is used to start or conclude the chapter 4 section 2 guided exercise.
+#
+# CHANGELOG
+#   * Wed Sept 2020 Manuel Aude Morales <maudemor@redhat.com>
+#   - Initial commit
+#   - Implemented start and finish functions
+#   - Fixed information that was wrong due to copy/pasting.
+
+
+PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin
+
+# Initialize and set some variables
+run_as_root='true'
+
+# Required by the DO378 shlib
+this='apps-inject'
+title='GE: Injecting Configuration Data'
+
+declare -a valid_commands=(start finish)
+
+function lab_start {
+
+  ocp4_print_prereq_header
+  ocp4_print_setup_header
+
+  ocp4_grab_lab_files
+
+  ocp4_print_setup_footer
+
+}
+
+function lab_finish {
+
+  ocp4_print_cleanup_header
+
+  ocp4_cleanup_lab_files
+
+  ocp4_print_cleanup_footer
+
+}
+
+############### Don't EVER change anything below this line ###############
+
+# Source library of functions
+source /usr/local/lib/${function_lib}
+source /usr/local/lib/${platform_lib}
+
+grading_main_program "$@"

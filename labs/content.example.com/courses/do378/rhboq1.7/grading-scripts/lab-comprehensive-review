@@ -1,0 +1,177 @@
+#!/bin/bash
+#
+# Copyright 2020 Red Hat, Inc.
+#
+# NAME
+#     lab-comprehensive-review - lab script for ch10s02 comprehensive review
+#
+# SYNOPSIS
+#     lab-apps-review {start|grade|finish}
+#
+#        start - verify prerequisites lab
+#        finish - removes the resources and files created for lab
+#        grade - verifies the student correctly performed the activity
+#
+# DESCRIPTION
+#     This script is used to start or conclude the chapter 10 section 2 lab.
+#
+# CHANGELOG
+#   * Thu Dec 10, 2020 Jordi Sola <jordisola@redhat.com>
+#   - Initial commit
+
+
+PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin
+
+# Initialize and set some variables
+run_as_root='true'
+
+# Required by the DO378 shlib
+this='comprehensive-review'
+title='Lab: Reviewing Microservice Development Concepts'
+
+declare -a valid_commands=(start grade finish)
+
+function lab_start {
+
+  ocp4_print_setup_header
+
+  ocp4_grab_lab_files 
+  
+  pad2 "Generate lab security resources"
+  cd ${labs}/${this}
+  SUCCESS_if_exitcode "./gencerts.sh"
+
+  ocp4_print_setup_footer
+
+}
+
+function lab_finish {
+
+  ocp4_print_cleanup_header
+
+  ocp4_cleanup_lab_files
+
+  ocp4_print_cleanup_footer
+}
+
+function lab_grade {
+    ocp4_print_grade_header
+
+  cd ${labs}/${this}
+
+  #0 Dependant services
+  # 0.1.- Frontend
+  print_header "Checking underlying services"
+  pad2 "[Frontend] Service available"
+  check_url_statuscode "http://localhost:3000/frontend" "200"
+  # 0.2.- News
+  pad2 "[News] Service available"
+  check_url_statuscode "http://localhost:6000/news/finance" "200"
+  # 0.3.- History
+  pad2 "[History] Service available"
+  SUCCESS_if_curl_code "http://localhost:8082" "200" "POST" "{source:USD,target:EUR}"
+  # 0.4.- Keycloak
+  pad2 "[Keycloak] Service available"
+  SUCCESS_if_exitcode "${labs}/${this}/keycloak-token.sh localhost:8081 quarkus backend-service jdoe jdoe secret"
+
+  print_header "Checking Currency service"
+  # 1 Currency Service
+  # 1.1.- Service up in the expected ports + Liveness/readyness prove
+  pad2 "[Currency] Up and healthy"
+  SUCCESS_if_curl_code "https://localhost:5100/health" "200" "GET" "" "-k"
+
+  # 1.7.- Service container (--name currency) is running.
+  pad2 "[Currency] Running as a container"
+  SUCCESS_if_output_contains "sudo -u student podman ps" "localhost/student/currency:1.0-SNAPSHOT" "->5100/tcp"
+
+  # 1.7.- Service container (--name currency) is running.
+  pad2 "[Currency] Insecure requests disabled"
+  SUCCESS_if_file_contains "${labs}/${this}/currency/src/main/resources/application.properties" "quarkus.http.insecure-requests\s*=\s*disabled"
+
+  # 1.4.- Service uses the H2-inmem database (jdbc:h2:mem:currency;DB_CLOSE_DELAY=-1 and jdbc:h2:tcp://localhost/~/currency for test)
+  pad2 "[Currency] Use H2 inmem database"
+  SUCCESS_if_file_contains "${labs}/${this}/currency/src/main/resources/application.properties" "quarkus.datasource.jdbc.url" "jdbc:h2:mem:currency;DB_CLOSE_DELAY=-1" "%test.quarkus.datasource.jdbc.url" "jdbc:h2:tcp://localhost/~/currency"
+
+  # 1.6.- Validate the usage of @QuarkusTestResource(H2DatabaseTestResource.class)
+  pad2 "[Currency] Test uses H2 database resource"
+  SUCCESS_if_file_contains "${labs}/${this}/currency/src/test/java/org/redhat/currency/CurrencyResourceTest.java" "@QuarkusTestResource" "H2DatabaseTestResource.class" 
+
+  # 1.2.- Service returns expected currency names and signs.
+  # AUD, CAD, CHF, EUR, GBP, JPY and USD
+  pad2 "[Currency] Get currency names"
+  SUCCESS_if_curl_body "https://localhost:5100" "GET" "" "-k" '"AUD"' '"CAD"' '"CHF"' '"EUR"' '"GBP"' '"JPY"' '"USD"'
+  pad2 "[Currency] Get currency sign"
+  SUCCESS_if_curl_body "https://localhost:5100/CAD" "GET" "" "-k" '"name":"CAD"' '"sign":"$"'
+  
+  # 1.3.- Delete endpoint available and OIDC protected.
+  pad2 "[Currency] Forbid unauthenticated delete"
+  SUCCESS_if_curl_code "https://localhost:5100/AUD" "401" "DELETE" "" "-k"
+
+  pad2 "[Currency] Forbid unauthorized delete"
+  TOKEN_ALICE=$(./keycloak-token.sh localhost:8081 quarkus backend-service alice alice secret)
+  SUCCESS_if_curl_code_auth "https://localhost:5100/AUD" "403" "DELETE" "" "${TOKEN_ALICE}"
+
+  pad2 "[Currency] Allow authorized delete"
+  TOKEN_JDOE=$(./keycloak-token.sh localhost:8081 quarkus backend-service jdoe jdoe secret)
+  SUCCESS_if_curl_code_auth "https://localhost:5100/AUD" "204" "DELETE" "" "${TOKEN_JDOE}"
+
+  # 1.5.- Execute successfull tests.
+  pad2 "[Currency] CurrencyResourceTest execution"
+  cd ${labs}/${this}/currency
+  spinner_wait "./mvnw test -q -Dtest=org.redhat.currency.CurrencyResourceTest"
+
+  # 2.- Exchange service
+  print_header "Checking Exchange service"
+    # 2.1.- Service up in the expected ports.
+  pad2 "[Exchange] Up and running"
+  SUCCESS_if_curl_code "http://localhost:8080/news"
+
+  # 2.2.- Feature flag present
+  # 2.2.1.- If disabled, only 3 currencies retrieved
+  pad2 "[Exchange] Disabled feature flag provides defaults"
+  echo "feature.external_currencies=false" >> ${labs}/${this}/exchange/src/main/resources/application.properties
+  sleep 2
+  SUCCESS_if_curl_body "http://localhost:8080/currencies" "GET" "" "" '["EUR","USD","JPY"]'
+
+  # 2.2.2.- If enabled, all needed currencies provided.
+  pad2 "[Exchange] Feature flag enabled reaches currency service"
+  sed -i '$d' ${labs}/${this}/exchange/src/main/resources/application.properties
+  echo "feature.external_currencies=true" >> ${labs}/${this}/exchange/src/main/resources/application.properties
+  sleep 2
+  SUCCESS_if_curl_body "http://localhost:8080/currencies" "GET" "" "" '"CAD"' '"CHF"' '"EUR"' '"GBP"' 
+  sed -i '$d' ${labs}/${this}/exchange/src/main/resources/application.properties
+
+  # 2.3.- Failback: Can't stop the container, so we can just alter the client url.
+  pad2 "[Exchange] Failback to defaults if service not available"
+  #sudo -u student podman pause currency
+  echo "com.redhat.exchange.service.CurrencyService/mp-rest/url=https://localhost:5111" >> ${labs}/${this}/exchange/src/main/resources/application.properties
+  sleep 2
+  SUCCESS_if_curl_body "http://localhost:8080/currencies" "GET" "" "" '["EUR","USD","JPY"]'
+  #sudo -u student podman unpause currency
+  sed -i '$d' ${labs}/${this}/exchange/src/main/resources/application.properties
+  sleep 2
+
+  # 2.4.- Metrics: invoke curl -X POST -d '{"source": "USD","target": "EUR"}'
+  #             Checks metrics are generated
+  pad2 "[Exchange] Generate metrics"
+  curl -s -o /dev/null -X POST -d '{"source": "USD","target": "EUR"}' http://localhost:8080/exchangeRate/singleCurrency -H "Content-Type: application/json"
+  curl -s -o /dev/null -X POST -d '{"source": "USD","target": "JPY"}' http://localhost:8080/exchangeRate/singleCurrency -H "Content-Type: application/json"
+  curl -s -o /dev/null -X GET http://localhost:8080/currencies 
+
+
+  SUCCESS_if_curl_body "http://localhost:8080/metrics/application" "GET" "" "" "application_ft_com_redhat_exchange_CurrencyResource_getCurrencyNames_invocations_total" \
+  "application_com_redhat_exchange_CurrencyResource_currencysign_count_total"
+
+  ocp4_print_grade_footer
+
+  print_header "The grading process has deleted the AUD currency. \
+  Restart the currency container or add the AUD currency before repeating the grading process."
+}
+
+############### Don't EVER change anything below this line ###############
+
+# Source library of functions
+source /usr/local/lib/${function_lib}
+source /usr/local/lib/${platform_lib}
+
+grading_main_program "$@"

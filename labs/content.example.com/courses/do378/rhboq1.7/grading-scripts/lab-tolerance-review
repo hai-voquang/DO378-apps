@@ -1,0 +1,201 @@
+#!/bin/bash
+#
+# Copyright 2020 Red Hat, Inc.
+#
+# NAME
+#     lab-tolerance-review - lab script for tolerance review lab
+#
+# SYNOPSIS
+#     lab-tolerance-review {start|grade|finish}
+#
+#        start - verify prerequisites lab
+#        grade - runs integration tests to validate the endpoints
+#        finish - removes the resources and files created for lab
+#
+# DESCRIPTION
+#     This script is used to start or conclude the chapter 6 section 5 laboratory.
+#
+# CHANGELOG
+#   * Wed Oct 7 2020 - Jordi Sola <jordisola@redhat.com>
+#   - Initial commit
+
+
+PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin
+
+# Initialize and set some variables
+run_as_root='true'
+this='tolerance-review'
+title='Lab: Implementing Fault Tolerance'
+target='workstation'
+
+# This defines which subcommands are supported (start, grade, etc.).
+# Corresponding lab_COMMAND functions must be defined.
+declare -a valid_commands=(start finish grade solve)
+
+
+function lab_start {
+  ocp4_print_setup_header
+
+  ocp4_grab_lab_files
+
+  ocp4_print_setup_footer
+}
+
+#Grade is ONLY for end of chapter labs!
+function lab_grade {
+
+  ocp4_print_grade_header
+
+  pad2 "Speaker: Service must be down"
+  if curl -s http://localhost:8082/speaker; then
+    print_FAIL
+  else
+    print_SUCCESS
+  fi
+
+  # check features.session-integration=true
+  pad2 "Session: Speaker service integration toggle enabled"
+  output=$(grep "features.session-integration" ${labs}/${this}/microservice-session/src/main/resources/application.properties | grep "true" | wc -l)
+  success_if_equals "${output}" "1"
+
+
+  pad2 "Schedule: Service is healthy"
+  # Must contain 4 '"status": "UP"'
+  output=$(curl -s http://localhost:8083/health | grep '"status": "UP"' | wc -l)
+  success_if_equals "${output}" "4"
+
+  pad2 "Schedule: Liveness check enabled"
+  output=$(curl -s http://localhost:8083/health/live | grep '"name": "Service is alive"' | wc -l)
+  success_if_equals "${output}" "1"
+
+  pad2 "Schedule: Readiness check enabled"
+  output=$(curl -s http://localhost:8083/health/ready | grep '"name": "Service is ready"' | wc -l)
+  success_if_equals "${output}" "1"
+
+  pad2 "Session: Service is healthy"
+  output=$(curl -s http://localhost:8081/health | grep '"status": "UP"' | wc -l)
+  success_if_equals "${output}" "4"
+
+  pad2 "Session: Liveness check enabled"
+  output=$(curl -s http://localhost:8081/health/live | grep '"name": "Service is alive"' | wc -l)
+  success_if_equals "${output}" "1"
+
+  pad2 "Session: Readiness check enabled"
+  output=$(curl -s http://localhost:8081/health/ready | grep '"name": "Service is ready"' | wc -l)
+  success_if_equals "${output}" "1"
+
+
+  pad2 "Session: Fallback for /sessions when no speaker available."
+  # check success
+  output=$(curl -s http://localhost:8081/sessions | grep '"name":"Emmanuel"' | wc -l)
+  success_if_equals "${output}" "1"
+
+  # check no enrichment
+  pad2 "Session: No enrichment for /sessions"
+  output=$(curl -s http://localhost:8081/sessions | grep '"name":"Emmanuel Bernard"' | wc -l)
+  success_if_equals "${output}" "0"
+
+  pad2 "Session: /sessions/{sessionID} fallback due to delay"
+  # Curl take more than 1 sec, when circuit open it takes much less.
+  # 'curl http://localhost:8081/sessions/s-1-1 -m 1' gets exitcode 28 (non-zero) due to timeout
+  if curl -s http://localhost:8081/sessions/s-1-1 -m 1 ; then
+    print_FAIL
+  else
+    print_SUCCESS
+  fi
+
+  pad2 "Session: /sessions/{sessionId} opens circuit after second failure"
+  sleep 3
+  curl -s http://localhost:8081/sessions/s-1-1 -m 1
+  if curl -s http://localhost:8081/sessions/s-1-1 -m 1 ; then
+    print_SUCCESS
+  else
+    print_FAIL
+  fi
+
+  pad2 "Session: Session speakers enrichment times out"
+  # 'curl localhost:8081/sessions/s-1-1/speakers' fails with content including "org.eclipse.microprofile.faulttolerance.exceptions.TimeoutException:"
+  if curl localhost:8081/sessions/s-1-1/speakers | grep "org.eclipse.microprofile.faulttolerance.exceptions.TimeoutException" ; then
+    print_SUCCESS
+  else
+    print_FAIL
+  fi
+
+  pad2 "Session: Update speaker implements retries fail"
+  # 'curl -X PUT "http://localhost:8081/sessions/s-1-1/speakers/Alex" -m 5' times out.
+  if curl -X PUT "http://localhost:8081/sessions/s-1-1/speakers/Alex" -m 5 ; then
+    print_FAIL
+  else
+    print_SUCCESS
+  fi
+
+  # Start-up speaker service -> same curl works.
+  pad2 "Speaker: Start service"
+  cd ${labs}/${this}/microservice-speaker
+  if ./mvnw package -DskipTests; then
+    ./mvnw quarkus:dev -DskipTests & 
+    sleep 10
+    SPEAKER_PID=$(ps -fa | grep -v grep | grep "microservice-speaker" | grep "quarkus:dev" | awk '{printf $2}')
+    cd -
+    print_SUCCESS
+  else
+    print_FAIL
+  fi
+
+  pad2 "Session: Update speaker retries succeed"
+  # 'curl -X PUT "http://localhost:8081/sessions/s-1-2/speakers/Alex" -m 5' times out.
+  if curl -X PUT "http://localhost:8081/sessions/s-1-2/speakers/Alex" -m 5 ; then
+    print_SUCCESS
+  else
+    print_FAIL
+  fi
+
+  pad2 "Session: Session update concurrency protected"
+  # './parallel.sh 'curl -s -o /dev/null -w "%{http_code}\n" -X PUT localhost:8081/sessions/s-1-1 -H "Content-Type: application/json" -d "{\"id\":\"s-1-2\",\"schedule\":1}"' 2' contains a "200" and a "500"
+  output=$(${labs}/${this}/parallel.sh 'curl -s -o /dev/null -w "%{http_code}\n" -X PUT localhost:8081/sessions/s-1-1 -H "Content-Type: application/json" -d "{\"id\":\"s-1-2\",\"schedule\":1}"' 2)
+  if [[ $output == *"500"* ]] && [[ $output == *"200"* ]]; then
+    print_SUCCESS
+  else
+    print_FAIL
+  fi
+
+  pad2 "Speaker: Stop service"
+  if kill -1 $SPEAKER_PID; then
+    print_SUCCESS
+  else
+    print_FAIL
+  fi
+
+  ocp4_print_grade_footer
+  print_line " Restart the Session service before running the grading script again."
+}
+
+function lab_finish {
+
+  ocp4_print_cleanup_header
+
+  ocp4_cleanup_lab_files
+
+  ocp4_print_cleanup_footer
+}
+
+
+
+function lab_solve {
+
+  ocp4_print_solve_header
+
+  cp -rfp ${solutions}/${this} ${labs}
+
+  ocp4_print_cleanup_footer
+}
+
+
+
+############### Don't EVER change anything below this line ###############
+
+# Source library of functions
+source /usr/local/lib/${function_lib}
+source /usr/local/lib/${platform_lib}
+
+grading_main_program "$@"

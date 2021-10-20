@@ -1,0 +1,67 @@
+#!/bin/bash
+#
+# Copyright 2020 Red Hat, Inc.
+#
+# NAME
+#     lab-implement-persist - grading script for DO283 - Chapter 2 Section 6 Guided Exercise
+#
+# SYNOPSIS
+#     lab-implement-persist {start|grade}
+#
+#        start   - prepare the system for starting the lab
+#        grade   - perform evaluation steps on the system
+#
+# DESCRIPTION
+#     This script, based on singular argument, either does start, or finish the Persisting Data with Panache Guided Exercise.
+#
+# CHANGELOG
+#   * Wed Aug 12 2020 Eduardo Ramirez <eramirez@redhat.com>
+#   - Updated to Quarkus 1.3.4
+#   * Mon Feb  19 2018 Richard Allred <rallred@redhat.com>
+#   - original code
+
+
+PATH=/usr/bin:/bin:/usr/sbin:/sbin
+
+# Initialize and set some variables
+run_as_root='true'
+target='workstation'
+# The grading script file name. Recall that the grading script file name SHOULD BE IDENTICAL TO THE LAB/GE/DEMO BRANCH!
+this='implement-persist'
+# Lab title
+title='Persisting Data with Panache'
+
+
+# This defines which subcommands are supported (start, grade, etc.).
+# Corresponding lab_COMMAND functions must be defined.
+declare -a valid_commands=(start finish)
+
+function lab_start {
+  ocp4_print_prereq_header
+
+  print_line " Check pre-requisites before doing anything..."
+
+  ocp4_print_setup_header
+
+  print_line " Do any required setup for this exercise..."
+  ocp4_grab_lab_files
+
+  ocp4_print_setup_footer
+}
+
+function lab_finish {
+  ocp4_print_cleanup_header
+
+  ocp4_cleanup_lab_files
+
+  ocp4_print_cleanup_footer
+}
+
+
+############### Don't EVER change anything below this line ###############
+
+# Source library of functions
+source /usr/local/lib/${function_lib}
+source /usr/local/lib/${platform_lib}
+
+grading_main_program "$@"

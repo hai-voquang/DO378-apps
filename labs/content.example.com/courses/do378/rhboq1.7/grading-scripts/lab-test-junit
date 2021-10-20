@@ -1,0 +1,65 @@
+#!/bin/bash
+#
+# Copyright 2019 Red Hat, Inc.
+#
+# NAME
+#     lab-test-junit - lab script to run the basic junit features exercise
+#
+# SYNOPSIS
+#     lab test-junit {start|finish}
+#
+#        start - Starts the exercise
+#        finish - Finishes the exercixe
+#
+# DESCRIPTION
+#     lab script to run the basic junit features exercise
+#
+# CHANGELOG
+#   * Mon Oct 26 2020 Jordi Sola <jordisola@redhat.com>
+#   - original code
+#
+# REFERENCES
+#     Applications
+#         This lab uses a variant of the expenses application
+
+
+PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin
+
+# Initialize and set some variables
+run_as_root='true'
+this='test-junit'
+title='Guided Exercise: Testing Quarkus Microservices'
+target='workstation'
+
+# This defines which subcommands are supported (start, grade, etc.).
+# Corresponding lab_COMMAND functions must be defined.
+declare -a valid_commands=(start finish grade)
+
+
+function lab_start {
+
+  ocp4_print_setup_header
+
+  ocp4_grab_lab_files
+
+  ocp4_print_setup_footer
+}
+
+
+function lab_finish {
+
+  ocp4_print_cleanup_header
+
+  ocp4_cleanup_lab_files
+
+  ocp4_print_cleanup_footer
+}
+
+
+############### Don't EVER change anything below this line ###############
+
+# Source library of functions
+source /usr/local/lib/${function_lib}
+source /usr/local/lib/${platform_lib}
+
+grading_main_program "$@"

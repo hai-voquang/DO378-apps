@@ -1,0 +1,715 @@
+#
+# Copyright 2019 Red Hat, Inc.
+#
+# NAME
+#     labtool.do378.shlib - lab grading script do378 function library
+#
+# SYNOPSIS
+#     Add the following line at the top of your script:
+#
+#        source /path/to/labtool.do378.shlib
+#
+#     *after* the source of the generic labtool.shlib
+#
+# DESCRIPTION
+#
+# CHANGELOG
+#   * Tue Jun 04 2019 George Hacker <ghacker@redhat.com>
+#   - create template
+
+#########################################################################
+##########################################################################
+##                   How to use this template:
+##
+## 1. Rename the file to labtool.<platform>.shlib
+## 2. Adjust the comments above
+## 3. Add functions below here to override and/or supplement
+##    labtool.shlib
+## 4. Remove these "How to use this template" comments
+##########################################################################
+##########################################################################
+
+
+# vim: ts=4 sw=2
+
+# Get RHT_* variable definitions
+[[ -f /etc/rht ]] && source /etc/rht
+
+COURSE="DO378"
+COURSE_HOME="/home/student/${COURSE}"
+
+
+##########################################################################
+## Global variables
+## Those are used by the functions but should not require customization
+##########################################################################
+
+labs="${COURSE_HOME}/labs"
+solutions="${COURSE_HOME}/solutions"
+curl_save='curl -s -S -o'
+materials="http://content.example.com/courses/${RHT_COURSE}/${RHT_VMTREE%/*}/materials"
+contents="http://content.example.com"
+
+TIMEOUT=6
+
+# IMPORTANT: Keep this in sync with the lab-configure script
+RHT_OCP4_CONFIG=/usr/local/etc/ocp4.config
+
+source ${RHT_OCP4_CONFIG} &>/dev/null
+
+##########################################################################
+## Generic functions
+## Those should be reusable without changes by other courses
+##########################################################################
+
+function ocp4_create_downloads_folder {
+
+  local folder='/home/student/Downloads'
+  if ! [ -d "${folder}" ]; then
+    ocp4_pad "Create the student's Downloads folder"
+    if mkdir "${folder}" && chown student:student "${folder}"
+    then
+      print_SUCCESS
+    else
+      print_FAIL
+    fi
+  fi
+}
+
+
+function ocp4_pad {
+  pad2 "$@"
+}
+
+function ocp4_print_prereq_header {
+  print_header "Checking prerequisites for ${title}"
+}
+
+function ocp4_print_setup_header {
+  print_header "Setting up the classroom for ${title}"
+}
+
+
+function ocp4_print_setup_footer {
+  print_line
+  pad 'Overall start status'
+
+  if [[ ${fail_count} -eq 0 ]]
+  then
+    print_SUCCESS
+  else
+    print_FAIL
+  fi
+  print_line
+}
+
+function ocp4_print_solve_footer {
+  print_line
+  pad 'Overall status'
+
+  if [[ ${fail_count} -eq 0 ]]
+  then
+    print_SUCCESS
+  else
+    print_FAIL
+  fi
+  print_line
+}
+
+function ocp4_print_grade_header {
+  print_header "Grading the student's work for ${title}"
+}
+
+function ocp4_print_solve_header {
+  print_header "Solving ${title}"
+}
+
+
+function ocp4_print_grade_footer {
+  print_line
+  pad 'Overall exercise grade'
+  if [[ ${fail_count} -eq 0 ]]
+  then
+    print_PASS
+  else
+    print_FAIL
+  fi
+
+  print_line
+}
+
+
+function ocp4_print_cleanup_header {
+  print_header "Completing ${title}"
+}
+
+
+function ocp4_print_cleanup_footer {
+  print_header "Please use start if you wish to do the exercise again."
+}
+
+function success_if_equals {
+    if [ "$1" = "$2" ]; then
+      print_SUCCESS
+    else
+      print_FAIL
+    fi
+}
+
+
+function ocp4_download_file {
+  local final_name="$1"
+  local destination="$2"
+  local url="$3"
+
+  pad " · Download ${final_name}"
+
+  ${curl_save} "${destination}/${final_name}" "${url}"
+  if [ -f "${destination}/${final_name}" ]; then
+    chown -R student:student "${destination}"
+    print_SUCCESS
+  else
+    print_FAIL
+  fi
+}
+
+function ocp4_delete_lab_files_if_present {
+  if [[ -d "${labs}/${this}" ]]; then
+    rm -rf "${labs}/${this}"
+  fi
+
+  if [[ -d "${solutions}/${this}" ]]; then
+    rm -rf "${solutions}/${this}"
+  fi
+}
+
+
+function ocp4_grab_lab_files {
+  local no_solution="$1"
+
+  #print_line " Downloading files for ${title}"
+
+  if [ -d "${labs}/${this}" ]; then
+    #print_line " Files were already been downloaded. Use finish if you want to start over."
+    #print_line
+    pad ' · Skip download of exercise and solution files'
+    print_SUCCESS
+    return
+  fi
+
+  pad ' · Download exercise files'
+  mkdir -p "${labs}/${this}"
+  chown student:student "${COURSE_HOME}"
+  chown student:student "${labs}"
+
+  ${curl_save} ${labs}/${this}.tgz ${materials}/labs/${this}.tgz
+  if [ -f "${labs}/${this}.tgz" ]; then
+    pushd ${labs}
+    if tar xzf ${this}.tgz ; then
+      rm -f ${this}.tgz
+      print_SUCCESS
+    else
+      print_FAIL
+    fi
+    popd
+  else
+    print_FAIL
+  fi
+
+  chown -R student:student "${labs}/${this}"
+
+  if [ "${no_solution}" == "" ]; then
+    pad ' · Download solution files'
+    mkdir -p "${solutions}/${this}"
+    chown student:student "${solutions}"
+
+    ${curl_save} ${solutions}/${this}.tgz ${materials}/solutions/${this}.tgz
+    if [ -f "${solutions}/${this}.tgz" ]; then
+      pushd ${solutions}
+      if tar xzf ${this}.tgz; then
+        rm -f ${this}.tgz
+        print_SUCCESS
+      else
+        print_FAIL
+      fi
+      popd
+    else
+      print_FAIL
+    fi
+
+    chown -R student:student "${solutions}/${this}"
+  fi
+}
+
+
+function ocp4_cleanup_lab_files
+{
+  cd ${COURSE_HOME}
+
+  if [ -d "${labs}/${this}" ]
+  then
+    pad ' · Remove exercise files'
+    rm -fr ${labs}/${this}
+    print_SUCCESS
+  fi
+
+  if [ -d "${solutions}/${this}" ]
+  then
+    pad ' · Remove solution files'
+    rm -fr ${solutions}/${this}
+    print_SUCCESS
+  fi
+}
+
+function ocp4_login {
+
+  API=$1
+  USER=$2
+  PASSWORD=$3
+
+ # IMPORTANT: Keep this code in sync with the lab-configure script
+
+  if ! curl --connect-timeout "${TIMEOUT}" -sk "${API}/apis/config.openshift.io/v1" &>/dev/null
+  then
+    print_FAIL
+    print_line
+    fatal 9 "Cannot connect to the OpenShift API. Please check your network connectivity."
+  fi
+
+  if ! oc login -u "${USER}" -p "${PASSWORD}" --insecure-skip-tls-verify "${API}" &>/dev/null
+  then
+    print_FAIL
+    print_line
+    fatal 9 "Cannot login to OpenShift."
+  fi
+
+  print_SUCCESS
+}
+
+function ocp4_login_as_admin {
+
+  # IMPORTANT: Keep this code in sync with the lab-configure script
+  ocp4_pad 'Log in to OpenShift'
+  ocp4_check_config
+  ocp4_login ${RHT_OCP4_MASTER_API} ${RHT_OCP4_ADMIN_USER} ${RHT_OCP4_ADMIN_PASSWORD}
+}
+
+function ocp4_login_as_developer {
+
+  # IMPORTANT: Keep this code in sync with the lab-configure script
+  ocp4_pad 'Log in to OpenShift as developer'
+  ocp4_check_config
+  ocp4_login ${RHT_OCP4_MASTER_API} ${RHT_OCP4_DEV_USER} ${RHT_OCP4_DEV_PASSWORD}
+}
+
+
+function ocp4_check_config {
+    if ! [ -r ${RHT_OCP4_CONFIG} ]; then
+    print_FAIL
+    print_line
+    fatal 9 'You need to perform GE "Configuring the Classroom Environment" before starting any exercise.'
+  fi
+}
+
+function ocp4_check_pod_ready_and_running {
+  local project="$1"
+  local selector="$2"
+  pad2 "Checking status of the pod ${name}"
+
+  local pod=$(oc get pod -l "${selector}" -n "${project}" -o name --field-selector=status.phase=Running)
+  local pod_ready=$(oc get "${pod}" -n "${project}" -o jsonpath="{.status.conditions[?(@.type=='Ready')].status}")
+  local container_ready=$(oc get "${pod}" -n "${project}" -o jsonpath="{.status.containerStatuses[0].ready}")
+  if test "${pod_ready}" = "True" -a "${container_ready}" = "true"; then
+    print_SUCCESS
+  else
+    print_FAIL
+  fi
+}
+
+function ocp4_check_dc_ready_and_running {
+  local project="$1"
+  local name="$2"
+  local kind="${3:-deploymentconfig}"
+
+  pad2 "Checking status of ${kind} ${name}"
+  if ! oc get ${kind}  ${name}; then
+    print_FAIL
+    return
+  fi
+
+  local replicas=$(oc get ${kind} ${name} -o jsonpath="{.status.replicas}")
+  local availableReplicas=$(oc get ${kind} ${name} -o jsonpath="{.status.availableReplicas}")
+  SUCCESS_if_equals "${replicas}" "${availableReplicas}"
+}
+
+function ocp4_check_deployment_ready_and_running {
+  ocp4_check_dc_ready_and_running "$1" "$2" "deployment"
+}
+
+function ocp4_check_build_exist {
+  local project="$1"
+  local name="$2"
+
+  pad2 "Checking existence of buildconfig ${name}"
+  if ! oc get bc ${name}; then
+    print_FAIL
+    return
+  fi
+  print_SUCCESS
+}
+
+function check_url_statuscode {
+  local url="$1"
+  local expected="$2"
+  local mode="$3"
+
+  local actual=$(curl -s -o /dev/null -w "%{http_code}" "${url}")
+  if [ "${mode}" == "grade" ]; then
+    PASS_if_equals "${actual}" "${expected}"
+  else
+    SUCCESS_if_equals "${actual}" "${expected}"
+  fi
+}
+
+function SUCCESS_if_curl_code {
+  local url="$1"
+  local expected="${2:-200}"
+  local verb="${3:-GET}"
+  local body="$4"
+  local extras="$5"
+
+  if [ ! -z "$body" ]; then
+    body="-d \"$body\""
+  fi
+  echo "curl -s -o /dev/null -X ${verb} ${body} -w '%{http_code}' ${extras} ${url}" >&2
+  local actual=$(curl -s -o /dev/null -X ${verb} ${body} -w '%{http_code}' ${extras} ${url})
+  SUCCESS_if_equals "${actual}" "${expected}"
+}
+
+
+function SUCCESS_if_curl_code_auth {
+  local url="$1"
+  local expected="${2:-200}"
+  local verb="${3:-GET}"
+  local body="$4"
+  local token="$5"
+
+  if [ ! -z "$body" ]; then
+    body="-d \"$body\""
+  fi
+  
+  echo curl -s -o /dev/null -X ${verb} ${body} -w '%{http_code}' -k -H "Authorization: Bearer ${token}" ${url} >&2
+  local actual=$(curl -s -o /dev/null -X ${verb} ${body} -w '%{http_code}' -k -H "Authorization: Bearer ${token}" ${url})
+  SUCCESS_if_equals "${actual}" "${expected}"
+}
+
+
+
+function SUCCESS_if_curl_body {
+  local url="$1"
+  local verb="${2:-GET}"
+  local body="$3"
+  local extras="$4"
+  local expected=${@:5}
+
+  if [ ! -z "$body" ]; then
+    body="-d \"$body\""
+  fi
+
+  SUCCESS_if_output_contains "curl -s -X ${verb} ${body} ${extras} ${url}" ${expected}
+}
+
+
+
+
+
+
+
+function ocp4_is_cluster_up {
+
+  print_line ' Verifying the OpenShift cluster is running:'
+  ocp4_login_as_admin
+
+  for node in $(oc get node -o jsonpath="{.items[*].metadata.name}" -l node-role.kubernetes.io/master); do
+    ocp4_pad "Check if leader node ${node} is ready"
+    local status=$(oc get node ${node} -o jsonpath="{.status.conditions[?(@.type=='Ready')].status}")
+    if [ "${status}" = "True" ]; then
+      print_SUCCESS
+    else
+      print_FAIL
+    fi
+  done
+
+  ocp4_check_pod_ready_and_running 'openshift-image-registry' 'docker-registry=default'
+}
+
+function ocp4_check_permissions_in_project {
+  local verb="$1"
+  local noun="$2"
+  local project="$3"
+
+  local can_i="$(oc auth can-i ${verb} ${noun} -n ${project})"
+
+  if [[ "${can_i,,}" = "yes" ]]; then
+    return 0
+  fi
+
+  return 1
+}
+
+function ocp4_delete_project {
+  #vararg
+  local project="$1"
+
+  while [ "${project}" != "" ]
+  do
+
+    if oc get project "${project}"
+    then
+      local project_status="$(oc get namespace ${project} -o jsonpath='{.status.phase}')"
+      # Normal projects have a status of "Active"
+      # A project which has just been deleted by a student may a status of "Terminating"
+      if [ "${project_status}" == "Active" ]
+      then
+        pad " · Delete OpenShift project '${project}'"
+        if oc delete project "${project}" --wait=true
+        then
+          print_SUCCESS
+
+          pad " · Wait for project '${project}' to be gone"
+          local RETRIES=15
+          while [ "${RETRIES}" != 0 ]; do
+            sleep 3
+            if oc get project "${project}" -o name
+            then
+              # do nothing
+              true
+            else
+              print_SUCCESS
+              break
+            fi
+            let RETRIES=RETRIES-1
+          done
+          if [ "${RETRIES}" = 0 ]; then
+            print_FAIL
+            print_line 'Too many tries, giving up'
+          fi
+        else
+          print_FAIL
+        fi
+      fi
+    fi
+
+    shift
+    project="$1"
+  done
+}
+
+function ocp4_logout {
+  pad " · Log out from OpenShift"
+  if oc logout
+  then
+    print_SUCCESS
+  else
+    print_FAIL
+  fi
+}
+
+function ocp4_new_project {
+  local project="$1"
+
+  ocp4_pad "Creating project ${project}"
+  spinner_retry "oc new-project ${project}"
+}
+
+function ocp4_deploy_solutions {
+    local project="$1"
+    local files="$2"
+    ocp4_pad "Deploying project files"
+    for file in ${files//,/ }
+    do
+      if ! oc create -n ${project} -f ${solutions}/${this}/${file}
+      then
+        print_FAIL
+        return
+      fi
+    done
+    print_SUCCESS
+}
+
+function ocp4_deploy_lab_files {
+    local project="$1"
+    local files="$2"
+    ocp4_pad "Deploying project lab files"
+    for file in ${files//,/ }
+    do
+      if ! oc create -n ${project} -f ${labs}/${this}/${file}
+      then
+        print_FAIL
+        return
+      fi
+    done
+    print_SUCCESS
+}
+
+
+function ocp4_process_template_solution {
+    local project="$1"
+    local template="$2"
+    local values=( "${@:3}" ) # The rest are params for the template (PAR=val)
+    local params=( "${values[@]/#/-p }" ) # Prefix them with "-p "
+    ocp4_pad "Processing application template"
+    if oc process -f ${solutions}/${this}/${template} ${params[@]} | oc -n ${project} create -f -
+    then
+      print_SUCCESS
+    else
+      print_FAIL
+    fi
+
+}
+
+function ocp4_wait_operator_ready {
+  local project_name="$1"
+  local operator="${2:-servicemeshoperator}"
+  ocp4_pad "Waiting for the \"${operator}\" operator to be ready."
+  spinner_retry "oc get ClusterServiceVersion -n ${project_name} | grep \"${operator}\" | grep -q \"Succeeded\""
+}
+
+function ocp4_get_route_host_into {
+   local target="$1"
+   local project="$2"
+   local route_name="$3"
+
+   eval $target=`oc get route $route_name -n $project -o jsonpath="{.spec.host}"`
+}
+
+function ocp4_get_route_url_into {
+  local target="$1"
+  local project="$2"
+  local route_name="$3"
+
+  local route_path=$(oc get route $route_name -n $project -o jsonpath="{.spec.host}{.spec.path}")
+
+  eval $target="${route_path}"
+}
+
+function spinner_retry {
+  local command="$1"
+  local -r spinchars=( '|' '/' '-' '\' )
+  local s=0
+  printf "[${spinchars[${s}]}]" >&3
+  for i in {1..90}; do
+    if eval "${command}"; then
+      printf '\b\b\b' >&3
+      print_SUCCESS
+      return
+    else
+      sleep 3
+      printf "\b\b${spinchars[$((++s%4))]}]" >&3
+    fi
+  done
+  printf '\b\b\b' >&3
+  print_FAIL
+}
+
+function spinner_wait {
+  eval "$1 &"
+  PID=$!
+  spinner ${PID}
+  SUCCESS_if_exitcode "wait ${PID}"
+}
+
+function ocp4_check_pod_replicas {
+  local pod_selector="$1"
+  local expected_replicas="$2"
+  local project="$3"
+
+  ocp4_pad "Check ${pod_selector} pod has ${expected_replicas} replicas"
+
+  for i in {1..10}; do
+    if oc get pods -n $project | grep -q $pod_selector
+    then
+      break
+    fi
+    sleep 1
+  done
+
+  if oc get pods -n $project | grep $pod_selector | grep -q "/${expected_replicas}"; then
+    print_SUCCESS
+  else
+    print_FAIL
+    print_line "The number of ${pod_selector} pod replicas does not match ${expected_replicas}."
+    print_line "Please try to redeploy the pod with 'oc delete pod <pod-name> -n ${project}'."
+  fi
+}
+
+function SUCCESS_if_equals {
+  if [ "$1" -eq "$2" ]; then
+      print_SUCCESS
+    else
+      echo "Expected $2 but was $1" >&2
+      print_FAIL
+  fi
+}
+
+function SUCCESS_if_exitcode {
+  if eval "$1"; then
+      print_SUCCESS
+    else
+      echo "$1 evaluated to $!" >&2
+      print_FAIL
+  fi
+}
+
+function SUCCESS_if_file_contains {
+  local filename
+  local expression
+  filename="$1"
+  shift
+  expression="$1"
+  while [ "${expression}" != "" ]; do
+    if grep -e "${expression}" "${filename}"; then
+      echo "Expression $expression found in $filename" >&2
+      shift
+      expression="$1"
+    else
+      echo "Expression $expression NOT found in $filename"  >&2
+      print_FAIL
+      return
+    fi
+  done
+  print_SUCCESS
+}
+
+function SUCCESS_if_output_contains {
+  local cmd
+  local expression
+  cmd="$1"
+  echo "${cmd}"
+  local cmd_out=$(${cmd})
+  shift
+  expression="$1"
+  while [ "${expression}" != "" ]; do
+    if [[ "${cmd_out}" == *"${expression}"* ]]; then
+      echo "Expression $expression found"
+      shift
+      expression="$1"
+    else
+      echo "Expression $expression NOT found in:"
+      echo "${cmd_out}"
+      print_FAIL
+      return
+    fi
+  done
+  print_SUCCESS
+}
+
+function PASS_if_equals {
+  if [ "$1" = "$2" ]; then
+      print_PASS
+    else
+      print_FAIL
+  fi
+}
+
+

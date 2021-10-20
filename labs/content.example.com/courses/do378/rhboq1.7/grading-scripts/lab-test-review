@@ -1,0 +1,127 @@
+#!/bin/bash
+#
+# Copyright 2019 Red Hat, Inc.
+#
+# NAME
+#     lab-test-review - Lab script for grading testing features
+#
+# SYNOPSIS
+#     lab test-review {start|finish|grade}
+#
+# DESCRIPTION
+#     This script, based on singular argument, tests grades the testig features of RHBQ
+#
+# CHANGELOG
+#   * Tue Nov 10 2020 Jordi Sola <jordisola@redhat.com>
+#   - Initial code
+#
+# REFERENCES
+#     Applications
+#         This lab contains a copy of the Quarkus Conference application at https://github.com/RedHatTraining/DO378-apps
+
+
+PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin
+
+# Initialize and set some variables
+run_as_root='true'
+this='test-review'
+title='Guided Exercise: Testing Microservices'
+target='workstation'
+
+# This defines which subcommands are supported (start, grade, etc.).
+# Corresponding lab_COMMAND functions must be defined.
+declare -a valid_commands=(start finish grade)
+
+
+function lab_start {
+
+  ocp4_print_setup_header
+
+  ocp4_grab_lab_files
+
+  ocp4_print_setup_footer
+}
+
+#Grade is ONLY for end of chapter labs!
+function lab_grade {
+
+  ocp4_print_grade_header
+
+  local schedule_root="${labs}/${this}/microservice-schedule"
+  local schedule_test="${schedule_root}/src/test/java/org/acme/conference/schedule/"
+  local speaker_root="${labs}/${this}/microservice-speaker"
+  local speaker_test="${speaker_root}/src/test/java/org/acme/conference/speaker/"
+  local vote_root="${labs}/${this}/microservice-vote"
+  local vote_test="${vote_root}/src/test/java/org/acme/conference/vote/"
+
+  # 1.- Schedule:
+  cd ${schedule_root}
+
+  pad2 "Schedule: Quarkus tests enabled"
+  SUCCESS_if_file_contains "${schedule_test}/ScheduleResourceTest.java" "import io\.quarkus\.test\.junit\.QuarkusTest" "@QuarkusTest"
+
+  pad2 "Schedule: Use test derby extension"
+  SUCCESS_if_output_contains "./mvnw dependency:tree --settings /home/student/.m2/settings.xml" "io.quarkus:quarkus-test-derby"
+
+  pad2 "Schedule: Derby test database enabled"
+  SUCCESS_if_file_contains "${schedule_test}/ScheduleResourceTest.java" "@QuarkusTestResource\s*(\s*DerbyDatabaseTestResource\.class\s*)"
+
+  pad2 "Schedule: Test database configured in test profile"
+  SUCCESS_if_file_contains "${schedule_root}/src/main/resources/application.properties" "%test\.quarkus\.datasource\.jdbc\.url\s*=\s*jdbc:derby://localhost/scheds;create=true"
+
+  pad2 "Schedule: Test execution successful"
+  spinner_wait "./mvnw -q test --settings /home/student/.m2/settings.xml" 
+
+  # 2.- Speaker
+  cd ${speaker_root}
+
+  pad2 "Speaker: Mock bean enabled"
+  SUCCESS_if_file_contains "${speaker_test}/DeterministicIdGenerator.java" "import io\.quarkus\.test\.Mock" "@Mock" "import javax\.inject\.Singleton" "@Singleton"
+
+  pad2 "Speaker: Mock bean injected and used"
+  SUCCESS_if_file_contains "${speaker_test}/SpeakerResourceTest.java" "@Inject" "DeterministicIdGenerator" "\.setNextUUID("
+
+  pad2 "Speaker: 'testNewSpeaker' test execution successful"
+  spinner_wait "./mvnw -q test --settings /home/student/.m2/settings.xml -Dtest=SpeakerResourceTest#testNewSpeaker" 
+
+  pad2 "Speaker: Use panache-mock extension"
+  SUCCESS_if_output_contains "./mvnw dependency:tree --settings /home/student/.m2/settings.xml" "io.quarkus:quarkus-panache-mock"
+
+  pad2 "Speaker: Speaker class mocked"
+  SUCCESS_if_file_contains "${speaker_test}/SpeakerResourceTest.java" "import io\.quarkus\.panache\.mock\.PanacheMock" "Speaker.class" "import org\.mockito\.Mockito" "Speaker.listAll\s*(\s*)" "thenReturn\s*("
+
+  pad2 "Speaker: 'testListAll' test execution successful"
+  spinner_wait "./mvnw -q test --settings /home/student/.m2/settings.xml -Dtest=SpeakerResourceTest#testListAll" 
+
+  # 3.- Speaker
+  cd ${vote_root}
+
+  pad2 "Vote: Use junit5-mockito extension"
+  SUCCESS_if_output_contains "./mvnw dependency:tree --settings /home/student/.m2/settings.xml" "io.quarkus:quarkus-junit5-mockito"
+
+  pad2 "Vote: SessionRatingDAO class mocked"
+  SUCCESS_if_file_contains "${vote_test}/RatingStatsResourceTest.java" "import io\.quarkus\.test\.junit\.mockito\.InjectMock" "@InjectMock" "SessionRatingDAO" "getRatingsBySession" "thenReturn\s*("
+  
+  pad2 "Vote: Test execution successful"
+  spinner_wait "./mvnw -q test --settings /home/student/.m2/settings.xml" 
+
+  ocp4_print_grade_footer
+}
+
+
+function lab_finish {
+
+  ocp4_print_cleanup_header
+
+  ocp4_cleanup_lab_files
+
+  ocp4_print_cleanup_footer
+}
+
+############### Don't EVER change anything below this line ###############
+
+# Source library of functions
+source /usr/local/lib/${function_lib}
+source /usr/local/lib/${platform_lib}
+
+grading_main_program "$@"

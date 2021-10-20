@@ -1,0 +1,112 @@
+#!/bin/bash
+#
+# Copyright 2020 Red Hat, Inc.
+#
+# NAME
+#     lab-monitor-metrics - lab script for GE 9.2 on monitoring metrics
+#
+# SYNOPSIS
+#     lab-monitor-metrics {start|finish}
+#
+#        start - verify prerequisites lab files and starts services.
+#        finish - removes the resources and files created for lab
+#
+# DESCRIPTION
+#     This script is used to start or conclude the chapter 4 section 2 guided exercise.
+#
+# CHANGELOG
+#   * Wed Nov 24th 2020 Manuel Aude Morales <maudemor@redhat.com>
+#   - Initial commit
+#   - Implemented start and finish functions
+#
+
+
+PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin
+
+# Initialize and set some variables
+run_as_root='false'
+
+# Required by the DO378 shlib
+this='monitor-metrics'
+title='GE: Adding Metrics to a Microservice'
+
+declare -a valid_commands=(start finish)
+
+function lab_start {
+    ocp4_print_setup_header
+
+    ocp4_grab_lab_files
+    start_services
+    ocp4_print_setup_footer
+}
+
+function lab_finish {
+    ocp4_print_cleanup_header
+
+    ocp4_cleanup_lab_files
+
+    ocp4_pad "Stop database, prometheus and grafana servers."
+    if ! podman rm -f "${this}-grafana-server" "${this}-prometheus-server" "${this}-postgresql-expense"; then
+        print_FAIL
+    else
+        print_SUCCESS
+    fi
+
+    ocp4_print_cleanup_footer
+
+}
+
+function start_services {
+    check_db_running=$(podman ps -a | grep "${this}-postgresql-expense" | wc -l)
+    if [[ $check_db_running == "1" ]]; then
+        ocp4_pad "Skip start database server for expense application."
+        print_SUCCESS
+    else
+        ocp4_pad "Start database server for expense application."
+        if ! podman run -d --name "${this}-postgresql-expense" -p 5432:5432 \
+            -e POSTGRESQL_PASSWORD=expenses_pwd \
+            -e POSTGRESQL_USER=expenses_user \
+            -e POSTGRESQL_ADMIN_PASSWORD=admin_password \
+            -e POSTGRESQL_DATABASE=expenses registry.access.redhat.com/rhscl/postgresql-10-rhel7:1; then
+            print_FAIL
+        else
+            print_SUCCESS
+        fi
+    fi
+    check_prometheus_running=$(podman ps -a | grep "${this}-prometheus-server" | wc -l)
+    if [[ $check_prometheus_running == "1" ]]; then
+        ocp4_pad "Skip start Prometheus server."
+        print_SUCCESS
+    else
+        ocp4_pad "Start Prometheus server"
+        if ! podman run -d --name "${this}-prometheus-server" -p 9090:9090 --net host \
+            -v ${labs}/${this}/prometheus.yml:/etc/prometheus/prometheus.yml:Z quay.io/prometheus/prometheus:v2.22.2; then
+            print_FAIL
+        else
+            print_SUCCESS
+        fi
+    fi
+    check_grafana_running=$(podman ps -a | grep "${this}-grafana-server" | wc -l)
+    if [[ $check_grafana_running == "1" ]]; then
+        ocp4_pad "Skip start Grafana server."
+        print_SUCCESS
+    else
+        ocp4_pad "Start Grafana server."
+        if ! podman run -d -p 3000:3000 --net host --name "${this}-grafana-server" \
+            -v ${labs}/${this}/datasource.yml:/etc/grafana/provisioning/datasources/datasource.yml:Z \
+            -v ${labs}/${this}/dashboard_config.yml:/etc/grafana/provisioning/dashboards/dashboard_config.yml:Z \
+            -v ${labs}/${this}/demo_expenses_dashboard.json:/etc/dashboards/expense/demo_expense_dashboard.json:Z  quay.io/bitnami/grafana:7.3.4; then
+            print_FAIL
+        else
+            print_SUCCESS
+        fi
+    fi
+}
+
+############### Don't EVER change anything below this line ###############
+
+# Source library of functions
+source /usr/local/lib/${function_lib}
+source /usr/local/lib/${platform_lib}
+
+grading_main_program "$@"

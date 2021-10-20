@@ -1,0 +1,120 @@
+#!/bin/bash
+#
+# Copyright 2019 Red Hat, Inc.
+#
+# NAME
+#     lab-deploy-review - lab script to run the ch03s07 lab to deploy microservices
+#
+# SYNOPSIS
+#     lab-test {pad2|cnfh}
+#
+#        pad2 - test the pad2 function
+#        cnfh - test the command not found handler
+#
+# DESCRIPTION
+#     This script, based on singular argument, tests a function
+#
+# CHANGELOG
+#   * Tue Sep 8, 2020 Jordi Sola <jordisola@redhat.com>
+#   - original code
+#
+# REFERENCES
+#     Applications
+#         This lab does not use any applications
+
+
+PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin
+
+source /usr/local/etc/ocp4.config
+
+# Initialize and set some variables
+run_as_root='true'
+this='deploy-review'
+title='Lab: Deploying Microservice-based Applications'
+target='workstation'
+project=${this}-${RHT_OCP4_DEV_USER}
+
+# This defines which subcommands are supported (start, grade, etc.).
+# Corresponding lab_COMMAND functions must be defined.
+declare -a valid_commands=(start finish solve grade)
+
+
+function lab_start {
+
+  ocp4_print_prereq_header
+  ocp4_check_config
+
+  ocp4_print_setup_header
+  ocp4_grab_lab_files
+  ocp4_login_as_developer
+  ocp4_new_project ${project}
+  ocp4_logout
+
+  ocp4_print_setup_footer
+}
+
+#Grade is ONLY for end of chapter labs!
+function lab_grade {
+
+  ocp4_print_grade_header
+  ocp4_login_as_developer
+  oc project ${project}
+
+  ocp4_check_dc_ready_and_running ${project} "microservice-speaker"
+  ocp4_check_build_exist ${project} "microservice-speaker"
+  ocp4_check_pod_ready_and_running ${project} "deploymentconfig=microservice-speaker"
+  SPEAKER_URL=""
+  ocp4_get_route_url_into "SPEAKER_URL" ${project} "microservice-speaker"
+  pad2 "Checking service endpoints" && check_url_statuscode "${SPEAKER_URL}/speaker" "200"
+  ocp4_check_deployment_ready_and_running ${project} "quarkus-conference-schedule"
+  ocp4_check_pod_ready_and_running ${project} "deploymentconfig=quarkus-conference-schedule"
+  SCHEDULE_URL=""
+  pad2 "Checking service endpoints" && ocp4_get_route_url_into "SCHEDULE_URL" ${project} "quarkus-conference-schedule"
+  check_url_statuscode "${SCHEDULE_URL}/schedule/all" "200"
+
+  ocp4_print_grade_footer
+}
+
+function lab_solve {
+  ocp4_print_solve_header
+
+  ocp4_login_as_developer
+  oc project ${project}
+
+  cd ${labs}/${this}/microservice-speaker
+  # Full mvn path is needed because 'lab' gets it out of the path.
+  pad2 "Adding openshift extension to speaker"
+  SUCCESS_if_exitcode "/opt/apache-maven-3.6.3/bin/mvn quarkus:add-extension -Dextension=openshift -s /home/student/.m2/settings.xml"
+  pad2 "Deploying speaker using openshift extension"
+  SUCCESS_if_exitcode "/opt/apache-maven-3.6.3/bin/mvn package -Dquarkus.kubernetes.deploy=true -Dquarkus.openshift.expose=true -Dquarkus.s2i.base-jvm-image=registry.access.redhat.com/ubi8/openjdk-11 -Dquarkus.swagger-ui.always-include=true -s /home/student/.m2/settings.xml"
+
+  pad2 "Creating schedule application"
+  SUCCESS_if_exitcode "oc new-app --docker-image=quay.io/redhattraining/quarkus-conference-schedule -l deploymentconfig=quarkus-conference-schedule"
+  pad2 "Exposing schedule application"
+  SUCCESS_if_exitcode "oc expose svc/quarkus-conference-schedule"
+
+}
+
+
+function lab_finish {
+
+  ocp4_print_cleanup_header
+
+  ocp4_login_as_developer
+  ocp4_delete_project ${project}
+  ocp4_logout
+
+  ocp4_cleanup_lab_files
+
+  ocp4_print_cleanup_footer
+}
+
+
+
+############### Don't EVER change anything below this line ###############
+
+# Source library of functions
+source /usr/local/lib/${function_lib}
+source /usr/local/lib/${platform_lib}
+
+grading_main_program "$@"

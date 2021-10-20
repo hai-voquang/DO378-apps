@@ -1,0 +1,187 @@
+#!/bin/bash
+#
+# Copyright 2020 Red Hat, Inc.
+#
+# NAME
+#     lab-secure-review - lab script for GE 2.4 on restful services
+#
+# SYNOPSIS
+#     lab-secure-review {start|finish}
+#
+#        start - verify prerequisites lab
+#        finish - removes the resources and files created for lab
+#        grade - grades the activity
+#
+# DESCRIPTION
+#     This script is used to start or conclude the chapter 8 section 5 lab.
+#
+# CHANGELOG
+#   * Wed Dec 22 2020 Manuel Aude <maudemor@redhat.com>
+#   - Initial commit
+
+
+PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin
+
+# Initialize and set some variables
+run_as_root='true'
+
+# Required by the do283 shlib
+this='secure-review'
+title='Lab: Securing Quarkus Microservices.'
+
+declare -a valid_commands=(start finish grade)
+
+function lab_start {
+  ocp4_print_setup_header
+  start_postgres_database
+  ocp4_grab_lab_files
+
+  ocp4_print_setup_footer
+
+}
+
+function start_postgres_database {
+    podman run -d --name "${this}-postgresql-conference" -p 5432:5432 \
+      -e POSTGRESQL_PASSWORD=confi_user \
+      -e POSTGRESQL_USER=conference_user \
+      -e POSTGRESQL_ADMIN_PASSWORD=conference \
+      -e POSTGRESQL_DATABASE=conference registry.access.redhat.com/rhscl/postgresql-10-rhel7:1
+}
+
+function lab_finish {
+
+  ocp4_print_cleanup_header
+  remove_postgres_database
+  ocp4_cleanup_lab_files
+
+  ocp4_print_cleanup_footer
+
+}
+
+function remove_postgres_database {
+  podman rm -f "${this}-postgresql-conference"
+}
+
+function lab_grade {
+  ocp4_print_grade_header
+  pad2 "Checking if the services can start correctly."
+  pushd ${labs}/${this}/quarkus-conference/
+  pushd microservice-speaker
+  sudo -u student /opt/apache-maven/bin/mvn compile quarkus:dev -Ddebug=5006 &
+  SPEAKER_PID=$!
+  sleep 5
+  popd
+  pushd microservice-session
+  sudo -u student /opt/apache-maven/bin/mvn compile quarkus:dev -Ddebug=5007 &
+  SESSION_PID=$!
+  sleep 5
+  popd
+  pushd microservice-jwt
+  sudo -u student /opt/apache-maven/bin/mvn compile quarkus:dev -Ddebug=5005 &
+  JWT_PID=$!
+  sleep 10
+  popd
+  popd
+  sleep 50
+  if kill -0 $JWT_PID $SPEAKER_PID $SESSION_PID; then
+    print_PASS
+  else
+    print_FAIL
+  fi
+  pushd ${labs}/${this}/
+  user1_token=$(curl -s -X POST -d @user1.json -H 'Content-Type: application/json' localhost:8082/jwt | jq --raw-output .token)
+  user2_token=$(curl -s -X POST -d @user2.json -H 'Content-Type: application/json' localhost:8082/jwt | jq --raw-output .token)
+  popd
+  #We verify JWT first, because if JWT fails, our validation method for mTLS would also fail, but because of JWT
+  # And not because of the mTLS configuration.
+  pad2 "Validating JWT configuration. Attempting unauthorized requests."
+  status_code_unauthorized=$(curl -k -o /dev/null -w "%{http_code}" https://127.0.0.1:8445/sessions/)
+  if [[ "${status_code_unauthorized}" == "401" ]]; then
+    print_PASS
+  else
+    print_FAIL
+  fi
+  pad2 "Validating JWT configuration. Attempting authorized requests."
+  status_code_auth=$(curl -o /dev/null -w "%{http_code}" -k https://127.0.0.1:8445/sessions/ -H 'Content-Type: application/json' -H "Authorization: Bearer ${user1_token}")
+  if [[ "${status_code_auth}" == "200" ]]; then
+    status_code_auth=$(curl -o /dev/null -w "%{http_code}" -k https://127.0.0.1:8445/sessions/ -H 'Content-Type: application/json' -H "Authorization: Bearer ${user2_token}")
+    if [[ "${status_code_auth}" == "200" ]]; then
+      print_PASS
+    else
+      print_FAIL
+    fi
+  else
+    print_FAIL
+  fi
+  pad2 "Validating JWT configuration. Attempting authorized different methods."
+  status_code_valid_post=$(curl -o /dev/null -w "%{http_code}" -X POST -d '{"id":"a123","schedule":2,"speakers":[]}' \
+    -k https://127.0.0.1:8445/sessions/ \
+    -H 'Content-Type: application/json' -H "Authorization: Bearer ${user1_token}")
+  if [[ "${status_code_valid_post}" == "200" ]]; then
+    status_code_valid_put=$(curl -o /dev/null -w "%{http_code}" -X PUT -d '{"id":"a123","schedule":3,"speakers":[]}' \
+      -k https://127.0.0.1:8445/sessions/a123 \
+      -H 'Content-Type: application/json' -H "Authorization: Bearer ${user1_token}")
+    if [[ "${status_code_valid_put}" == "200" ]]; then
+      status_code_valid_delete=$(curl -o /dev/null -w "%{http_code}" -X DELETE \
+        -k https://127.0.0.1:8445/sessions/a123 \
+        -H 'Content-Type: application/json' -H "Authorization: Bearer ${user1_token}")
+      if [[ "${status_code_valid_delete}" != "403" ]]; then
+        print_PASS
+      else
+        print_FAIL
+      fi
+    else
+      print_FAIL
+    fi
+  else
+    print_FAIL
+  fi
+  pad2 "Validating JWT configuration. Attempting unauthorized different methods."
+  status_code_valid_post=$(curl -o /dev/null -w "%{http_code}" -X POST -d '{"id":"a123","schedule":2,"speakers":[]}' \
+    -k https://127.0.0.1:8445/sessions/ \
+    -H 'Content-Type: application/json' -H "Authorization: Bearer ${user2_token}")
+  if [[ "${status_code_valid_post}" == "403" ]]; then
+    status_code_valid_put=$(curl -o /dev/null -w "%{http_code}" -X PUT -d '{"id":"a123","schedule":3,"speakers":[]}' \
+      -k https://127.0.0.1:8445/sessions/a123 \
+      -H 'Content-Type: application/json' -H "Authorization: Bearer ${user2_token}")
+    if [[ "${status_code_valid_put}" == "403" ]]; then
+      status_code_valid_delete=$(curl -o /dev/null -w "%{http_code}" -X DELETE \
+        -k https://127.0.0.1:8445/sessions/a123 \
+        -H 'Content-Type: application/json' -H "Authorization: Bearer ${user2_token}")
+      if [[ "${status_code_valid_delete}" == "403" ]]; then
+        print_PASS
+      else
+        print_FAIL
+      fi
+    else
+      print_FAIL
+    fi
+  else
+    print_FAIL
+  fi
+  # Calling microservice-speaker, without using a client certificate, should fail.
+  pad2 "Checking if the mTLS configuration used by microservice-speaker and microservice-session is working"
+  if curl https://localhost:8444/; then
+    print_FAIL
+  else
+    # And yet, microservice-session should be able to call it, because they are configured to communicate via mTLS
+    output_session_speaker=$(curl -s -k https://127.0.0.1:8445/sessions/s-1-1 -H 'Content-Type: application/json' -H "Authorization: Bearer ${user1_token}")
+    if [[ "${output_session_speaker}" == *"Emmanuel Bernard"* ]]; then
+      print_PASS
+    else
+      print_FAIL
+    fi
+  fi
+
+
+  kill -9 $JWT_PID $SPEAKER_PID $SESSION_PID
+  ocp4_print_grade_footer
+}
+
+############### Don't EVER change anything below this line ###############
+
+# Source library of functions
+source /usr/local/lib/${function_lib}
+source /usr/local/lib/${platform_lib}
+
+grading_main_program "$@"

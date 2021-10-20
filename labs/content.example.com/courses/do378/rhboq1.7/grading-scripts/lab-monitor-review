@@ -1,0 +1,104 @@
+#!/bin/bash
+#
+# Copyright 2020 Red Hat, Inc.
+#
+# NAME
+#     lab-monitor-review - lab script for Lab 9.5
+#
+# SYNOPSIS
+#     lab-monitor-review {pad2|cnfh}
+#
+#        start - setup lab files
+#        finish - clean lab files
+#        grade - grade lab
+#
+# DESCRIPTION
+#     This script, based on singular argument, prepares and cleans lab files for Lab 9.5
+#
+# CHANGELOG
+#   * Mon Nov 27 2020 Ravi Srinivasan <ravis@redhat.com>
+#   - original code
+#
+# REFERENCES
+#     Applications
+#         This lab uses the Quarkus Conference app with extra code for tracing and metrics
+
+
+PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin
+
+# Initialize and set some variables
+run_as_root='true'
+this='monitor-review'
+title='Lab: Monitoring Microservices'
+target='workstation'
+SESSION_URL='http://localhost:8081'
+SPEAKER_URL='http://localhost:8082'
+SCHEDULE_URL='http://localhost:8083'
+
+# This defines which subcommands are supported (start, grade, etc.).
+# Corresponding lab_COMMAND functions must be defined.
+declare -a valid_commands=(start finish grade)
+
+function lab_start {
+
+  ocp4_print_prereq_header
+  ocp4_print_setup_header
+  ocp4_grab_lab_files
+  ocp4_print_setup_footer
+}
+
+function lab_finish {
+
+  ocp4_print_cleanup_header
+  ocp4_cleanup_lab_files
+  ocp4_print_cleanup_footer
+}
+
+function lab_grade {
+  ocp4_print_grade_header
+  pad2 "Checking if 'session' microservice is running"
+  check_url_statuscode "${SESSION_URL}/sessions" "200" "grade"
+  pad2 "Checking if 'speaker' microservice is running"
+  check_url_statuscode "${SPEAKER_URL}/speaker" "200" "grade"
+  pad2 "Checking if 'schedule' microservice is running"
+  check_url_statuscode "${SCHEDULE_URL}/schedule/all" "200" "grade"
+  pad2 "Checking if tracing extension is enabled for 'session'"
+  tracing=$(grep "quarkus-smallrye-opentracing" ${labs}/${this}/microservice-session/pom.xml | wc -l)
+  PASS_if_equals "${tracing}" "1" "grade"
+  pad2 "Checking Jaeger for traces from 'retrieveSession' method"
+  trace_count=$(curl http://localhost:16686/api/traces?service=session | jq '.data[].spans' | jq '.[] | select (.operationName=="GET:org.acme.conference.session.SessionResource.retrieveSession")' | jq '.traceID' | wc -l)
+  if [[ "$trace_count" -gt 0 ]];
+    then
+        print_PASS
+    else
+        print_FAIL
+  fi
+  pad2 "Checking if metrics extension is enabled for 'session'"
+  metrics=$(grep "quarkus-smallrye-metrics" ${labs}/${this}/microservice-session/pom.xml | wc -l)
+  PASS_if_equals "${metrics}" "1" "grade"
+  pad2 "Checking for 'sessionDetailsFetch' metric"
+  sdf=$(curl -s http://localhost:8081/metrics/application | grep  application_org_acme_conference_session_SessionResource_sessionDetailsFetch | grep "^[^#]" | wc -l)
+  if [[ $sdf -gt 0 ]];
+    then
+      print_PASS
+    else
+      print_FAIL
+  fi
+  pad2 "Checking for 'subscriberCount' metric"
+  subc=$(curl -s http://localhost:8081/metrics/application | grep  application_org_acme_conference_session_SessionResource_subscriberCount | grep "^[^#]" | wc -l)
+  if [[ $subc -gt 0 ]];
+    then
+      print_PASS
+    else
+      print_FAIL
+  fi
+  ocp4_print_grade_footer
+}
+
+############### Don't EVER change anything below this line ###############
+
+# Source library of functions
+source /usr/local/lib/${function_lib}
+source /usr/local/lib/${platform_lib}
+
+grading_main_program "$@"

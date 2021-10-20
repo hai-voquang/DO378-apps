@@ -1,0 +1,88 @@
+#!/bin/bash
+#
+# Copyright 2020 Red Hat, Inc.
+#
+# NAME
+#     lab-implement-rest - lab script for GE 2.4 on restful services
+#
+# SYNOPSIS
+#     lab-implement-rest {start|finish}
+#
+#        start - verify prerequisites lab
+#        grade - runs integration tests to validate the endpoints
+#        finish - removes the resources and files created for lab
+#
+# DESCRIPTION
+#     This script is used to start or conclude the chapter 2 section 4 guided exercise.
+#
+# CHANGELOG
+#   * Thu Oct 1 2020 Jordi Sola <jordisola@redhat.com>
+#   - Initial commit
+
+
+PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin
+
+# Initialize and set some variables
+run_as_root='true'
+
+# Required by the do283 shlib
+this='tolerance-policies'
+title='Applying Fault Tolerance Policies'
+
+declare -a valid_commands=(start solve finish)
+
+function lab_start {
+
+  #ocp4_print_prereq_header
+
+  ocp4_print_setup_header
+
+  ocp4_grab_lab_files
+
+  ocp4_print_setup_footer
+
+}
+
+function lab_finish {
+
+  ocp4_print_cleanup_header
+
+  ocp4_cleanup_lab_files
+
+  ocp4_print_cleanup_footer
+
+}
+
+function lab_solve {
+    ocp4_print_solve_header
+
+
+    ocp4_print_solve_footer
+}
+
+function copy_grading_quarkus_test {
+  cp ${labs}/${this}/prepared/LabGradingTest.java \
+     ${labs}/${this}/microservice-speaker/src/test/java/org/acme/conference/speaker/LabGradingTest.java
+}
+
+function run_maven_test {
+  pushd ${labs}/${this}/microservice-speaker/
+
+  ocp4_pad "Running integration tests for the lab endpoints."
+  if sudo -u student /opt/apache-maven/bin/mvn test; then
+    print_PASS
+  else
+    print_FAIL
+  fi
+  popd
+
+
+}
+
+############### Don't EVER change anything below this line ###############
+
+# Source library of functions
+source /usr/local/lib/${function_lib}
+source /usr/local/lib/${platform_lib}
+
+grading_main_program "$@"

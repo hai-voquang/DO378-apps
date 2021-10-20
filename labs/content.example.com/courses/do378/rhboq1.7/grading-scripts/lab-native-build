@@ -1,0 +1,70 @@
+#!/bin/bash
+#
+# Copyright 2020 Red Hat, Inc.
+#
+# NAME
+#     lab-native-build - lab script for GE 7.2 on native builds
+#
+# SYNOPSIS
+#     lab-native-build {start|finish}
+#
+#        start - verify prerequisites lab
+#        finish - removes the resources and files created for lab
+#
+# DESCRIPTION
+#     This script is used to start or conclude the chapter 4 section 2 guided exercise.
+#
+# CHANGELOG
+#   * October 13th, 2020 Manuel Aude Morales <maudemor@redhat.com>
+#   - Initial commit
+#   - Implemented start and finish functions
+#
+
+
+PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin
+
+# Initialize and set some variables
+run_as_root='true'
+
+# Required by the DO378 shlib
+this='native-build'
+title='GE: Building Native Applications with Quarkus'
+
+declare -a valid_commands=(start finish)
+
+function lab_start {
+  ocp4_print_setup_header
+
+  ocp4_grab_lab_files
+  ocp4_pad "Starting PostgreSQL database container."
+  podman run -d --name postgresql-expense -p 5432:5432 -e POSTGRESQL_PASSWORD=expense_password -e POSTGRESQL_USER=expense_user -e POSTGRESQL_ADMIN_PASSWORD=admin_password -e POSTGRESQL_DATABASE=expense registry.access.redhat.com/rhscl/postgresql-10-rhel7:1
+  if [ $? == 0 ]; then
+    print_SUCCESS
+  else
+    print_FAIL
+  fi
+  ocp4_print_setup_footer
+}
+
+function lab_finish {
+  ocp4_print_cleanup_header
+  ocp4_pad "Deleting PostgreSQL database container."
+  podman rm -f postgresql-expense
+  if [ $? == 0 ]; then
+    print_SUCCESS
+  else
+    print_FAIL
+  fi
+  ocp4_cleanup_lab_files
+
+  ocp4_print_cleanup_footer
+
+}
+
+############### Don't EVER change anything below this line ###############
+
+# Source library of functions
+source /usr/local/lib/${function_lib}
+source /usr/local/lib/${platform_lib}
+
+grading_main_program "$@"

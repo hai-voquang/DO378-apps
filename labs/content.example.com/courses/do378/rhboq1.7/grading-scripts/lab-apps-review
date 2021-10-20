@@ -1,0 +1,102 @@
+#!/bin/bash
+#
+# Copyright 2020 Red Hat, Inc.
+#
+# NAME
+#     lab-apps-review - lab script for GE 4.2 on restful services
+#
+# SYNOPSIS
+#     lab-apps-review {start|grade|finish}
+#
+#        start - verify prerequisites lab
+#        finish - removes the resources and files created for lab
+#        grade - verifies the student correctly performed the activity
+#
+# DESCRIPTION
+#     This script is used to start or conclude the chapter 4 section 7 lab.
+#
+# CHANGELOG
+#   * Wed Sept 2020 Manuel Aude Morales <maudemor@redhat.com>
+#   - Initial commit
+#   - Implemented start and finish functions
+#
+
+
+PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin
+
+# Initialize and set some variables
+run_as_root='true'
+
+# Required by the DO378 shlib
+this='apps-review'
+title='Lab: Building Microservice Applications with Quarkus'
+
+declare -a valid_commands=(start grade finish)
+
+function lab_start {
+
+  ocp4_print_setup_header
+
+  ocp4_grab_lab_files
+
+  ocp4_print_setup_footer
+
+}
+
+function lab_finish {
+
+  ocp4_print_cleanup_header
+
+  ocp4_cleanup_lab_files
+
+  ocp4_print_cleanup_footer
+}
+
+function lab_grade {
+    ocp4_print_grade_header
+
+    test_with_flag_disabled
+    test_with_flag_enabled
+
+    print_line
+
+    ocp4_print_grade_footer
+}
+
+
+function test_with_flag_disabled {
+    pushd ${labs}/${this}/quarkus-conference/microservice-session
+    ocp4_pad "Setting features.session-integration to false."
+    sed -i 's/features.session-integration=true/features.session-integration=false/g' src/main/resources/application.properties
+    sleep 10
+    output=$(curl http://localhost:8081/sessions/s-1-1)
+    if [[ $output == '{"id":"s-1-1","schedule":1,"speakers":[{"id":1,"name":"Emmanuel","uuid":"s-1-1"}]}' ]]; then
+      print_PASS
+    else
+      print_FAIL
+    fi
+    popd
+}
+
+function test_with_flag_enabled {
+    pushd ${labs}/${this}/quarkus-conference/microservice-session
+    ocp4_pad "Setting features.session-integration to true."
+    sed -i 's/features.session-integration=false/features.session-integration=true/g' src/main/resources/application.properties
+    sleep 10
+    output=$(curl http://localhost:8081/sessions/s-1-1)
+    if [[ $output == '{"id":"s-1-1","schedule":1,"speakers":[{"id":1,"name":"Emmanuel Bernard","uuid":"s-1-1"}]}' ]]; then
+      print_PASS
+    else
+      print_FAIL
+    fi
+    popd
+}
+
+
+############### Don't EVER change anything below this line ###############
+
+# Source library of functions
+source /usr/local/lib/${function_lib}
+source /usr/local/lib/${platform_lib}
+
+grading_main_program "$@"
